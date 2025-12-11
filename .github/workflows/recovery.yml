@@ -1,4 +1,4 @@
-name: Build TWRP (Docker)
+name: Debug & Build TWRP
 
 on:
   workflow_dispatch:
@@ -6,64 +6,74 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:20.04
 
     steps:
-    - name: Checkout Device Tree
+    - name: Free Disk Space (Cleanup)
+      run: |
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        df -h
+
+    - name: Checkout Your Repo
       uses: actions/checkout@v4
+
+    - name: DEBUG - Show File Structure
+      run: |
+        echo "=== LISTING YOUR REPO FILES ==="
+        ls -R
+        echo "==============================="
+
+    - name: Prepare Ubuntu 20.04 Container
+      # We run the rest inside a clean container to avoid dependency issues
+      uses: addnab/docker-run-action@v3
       with:
-        path: device/samsung/gta9
+        image: ubuntu:20.04
+        options: -v ${{ github.workspace }}:/workspace -v /mnt:/mnt
+        run: |
+          echo "=== Installing Dependencies ==="
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
+          gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev \
+          libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 rsync
 
-    - name: Install Dependencies
-      run: |
-        # Turn off interactive prompts
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
-        gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev \
-        libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3
+          echo "=== Initializing Repo Tool ==="
+          mkdir -p /root/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > /root/bin/repo
+          chmod a+x /root/bin/repo
+          export PATH=/root/bin:$PATH
 
-    - name: Initialize Repo
-      run: |
-        mkdir -p /github/home/twrp
-        cd /github/home/twrp
-        
-        # Configure Git
-        git config --global user.name "GitHub Action"
-        git config --global user.email "action@github.com"
-        
-        # Install Repo Tool manually
-        mkdir -p /github/home/bin
-        curl https://storage.googleapis.com/git-repo-downloads/repo > /github/home/bin/repo
-        chmod a+x /github/home/bin/repo
-        export PATH=/github/home/bin:$PATH
-        
-        # Initialize & Sync (Using TWRP 12.1 Manifest)
-        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
-        repo sync -j$(nproc --all) --force-sync
+          mkdir -p /mnt/twrp
+          cd /mnt/twrp
+          
+          echo "=== Syncing TWRP Source (Lightweight) ==="
+          git config --global user.name "Action"
+          git config --global user.email "action@github.com"
+          repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
+          repo sync -j$(nproc --all) --force-sync
 
-    - name: Build Recovery
-      run: |
-        export PATH=/github/home/bin:$PATH
-        cd /github/home/twrp
-        
-        # Move your device tree into place
-        mkdir -p device/samsung
-        # We copy from the checkout path ($GITHUB_WORKSPACE) to the build path
-        cp -r $GITHUB_WORKSPACE/device/samsung/gta9 device/samsung/
+          echo "=== Placing Device Tree ==="
+          # We create the target directory
+          mkdir -p device/samsung/gta9
+          
+          # SAFETY COPY: Copy EVERYTHING from your repo into the device folder
+          # This works even if your files are at the root
+          rsync -av --exclude='.git' /workspace/ device/samsung/gta9/
 
-        # Setup Environment
-        export ALLOW_MISSING_DEPENDENCIES=true
-        . build/envsetup.sh
-        
-        # Lunch and Build
-        lunch omni_gta9-eng
-        mka recoveryimage
+          echo "=== Building ==="
+          export ALLOW_MISSING_DEPENDENCIES=true
+          . build/envsetup.sh
+          lunch omni_gta9-eng
+          mka recoveryimage
+
+          echo "=== Copying Output ==="
+          # Move result back to workspace so GitHub can upload it
+          cp out/target/product/gta9/recovery.img /workspace/recovery.img || echo "Build failed to produce image"
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: recovery.img
-        path: /github/home/twrp/out/target/product/gta9/recovery.img
+        path: recovery.img
         
