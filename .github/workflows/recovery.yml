@@ -16,7 +16,11 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt update
-        sudo apt install git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig
+        # Updated package list for Ubuntu 22.04
+        sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
+        gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses-dev x11proto-dev \
+        libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig \
+        python3 python-is-python3
 
     - name: Initialize Repo
       run: |
@@ -24,7 +28,7 @@ jobs:
         cd ~/twrp
         git config --global user.name "GitHub Action"
         git config --global user.email "action@github.com"
-        # We use twrp-12.1 as the base for Android 12+ devices
+        # Using twrp-12.1 manifest
         repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
         repo sync -j$(nproc --all) --force-sync
 
@@ -50,4 +54,5 @@ jobs:
       with:
         name: recovery.img
         # The wildcard matches the output path regardless of slight name variations
-        path: ~/twrp/out/target/product/gta9/recovery.img
+        path: ~/twrp/out/target/product/*/recovery.img
+        
